@@ -5,6 +5,7 @@ a key task is GGUF tokenization specification:
 the tokenizer is likely inside the .gguf file in some way
 but where and how?
 
+# Notes:
 ## Current Implementation Structure
 ```rust
 src/
@@ -12,152 +13,173 @@ src/
   └── gguf_tokenizer_module/
       └── mod.rs           // GGUF-specific tokenizer implementation
 ```
-
-## Key Components Documentation
-
-### TokenizerGGUF
-```rust
-/// GGUF-specific tokenizer implementation
-/// 
-/// # Design Notes
-/// This tokenizer specifically handles the GGUF format's approach to tokenization:
-/// - Vocabulary and token mappings stored in model metadata
-/// - No external tokenizer files needed (unlike HuggingFace models)
-/// - Special tokens (BOS/EOS) stored as explicit IDs in metadata
-/// 
-/// # Current Status
-/// - Basic structure implemented
-/// - Vocabulary loading works
-/// - Basic encode/decode implemented
-/// - NEEDS IMPLEMENTATION: Proper subword tokenization
-/// 
-/// # Memory Considerations
-/// - Vocabulary maps held in memory
-/// - Consider memory usage for very large vocabularies
-/// 
-/// # Future Work Needed
-/// 1. Implement proper subword tokenization (current implementation is naive word-splitting)
-/// 2. Add proper detokenization (current implementation uses simple space joining)
-/// 3. Add handling for special characters and whitespace
-/// 4. Add vocabulary statistics and validation
-/// 5. Consider adding vocabulary size limits or lazy loading
-/// 
-/// # Usage Example
-/// ```rust
-/// let model = GGUFModel::load("model.gguf")?;
-/// let tokenizer = model.load_gguf_tokenizer()?;
-/// let tokens = tokenizer.encode_text_to_gguf_tokens("Hello world")?;
-/// let text = tokenizer.decode_gguf_tokens_to_text(&tokens)?;
-/// ```
-#[derive(Debug)]
-pub struct TokenizerGGUF {
-    // ... fields ...
-}
-```
-
-### Encoding/Decoding Functions
-```rust
-impl TokenizerGGUF {
-    /// Converts input text to GGUF token IDs
-    /// 
-    /// # Implementation Status
-    /// CURRENT: Basic word-splitting only
-    /// NEEDED: Proper subword tokenization algorithm
-    /// 
-    /// # Known Limitations
-    /// 1. Only handles space-separated words
-    /// 2. No handling of special characters
-    /// 3. No handling of case sensitivity
-    /// 4. No support for continuous text
-    /// 
-    /// # Future Requirements
-    /// - Implement BPE or WordPiece tokenization
-    /// - Add proper text preprocessing
-    /// - Handle unknown tokens properly
-    pub fn encode_text_to_gguf_tokens(&self, text: &str) -> io::Result<Vec<u32>> {
-        // ... implementation ...
-    }
-
-    /// Converts GGUF token IDs back to text
-    /// 
-    /// # Implementation Status
-    /// CURRENT: Basic token joining
-    /// NEEDED: Proper detokenization rules
-    /// 
-    /// # Known Limitations
-    /// 1. Simple space joining only
-    /// 2. No handling of special tokens
-    /// 3. No proper whitespace restoration
-    /// 
-    /// # Future Requirements
-    /// - Implement proper detokenization rules
-    /// - Handle special tokens correctly
-    /// - Restore original whitespace
-    pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
-        // ... implementation ...
-    }
-}
-```
-
-## Critical Next Steps
-
-1. Tokenization Implementation
-   - Current tokenization is placeholder only
-   - Need to implement proper subword tokenization
-   - Reference GGUF specification for exact tokenization rules
-
-2. Memory Management
-   - Consider impact of vocabulary size
-   - Implement lazy loading if needed
-   - Add memory usage tracking
-
-3. Error Handling
-   - Add more specific error types
-   - Improve error messages
-   - Add validation checks
-
-4. Testing
-   - Add unit tests for tokenization
-   - Add integration tests
-   - Add memory usage tests
-
-## Integration Notes
-
-The tokenizer is part of a larger no-load inference implementation:
-- Model weights are memory mapped
-- Tokenizer vocabulary is currently fully loaded
-- Consider impact on overall memory usage
-
-## Usage Warnings
-
-1. Tokenization Implementation
-   ```rust
-   // WRONG - Will split incorrectly
-   let tokens = tokenizer.encode_text_to_gguf_tokens("don't")?;
-   
-   // TODO: Implement proper subword handling
-   // Should handle: contractions, punctuation, special characters
-   ```
-
-2. Memory Usage
-   ```rust
-   // Current implementation loads full vocabulary
-   // Consider monitoring memory usage with large models
-   let tokenizer = model.load_gguf_tokenizer()?;
-   ```
-
-## References Needed
-1. GGUF tokenization specification
-2. BPE/WordPiece implementation details
-3. Memory usage requirements
-4. Test suite requirements
-
-notes:
 For a LLaMA-style tokenizer (e.g. with 32K vocabulary) the special tokens are:
 BOS (begin sequence): ID 1 (<s>)
 EOS (end sequence): ID 2 (</s>)
 UNK (unknown): ID 0 (<unk>)
 PAD (padding): ID 2 (same as EOS)
+
+## Documentation
+```rust
+// gguf_tokenizer_module/mod.rs
+
+/*
+# GGUF Tokenizer Module Documentation
+Version: 0.1.0
+Last Updated: 2024-01-04
+
+## Overview
+This module implements tokenization for GGUF format models, specifically handling:
+- Vocabulary loading from GGUF metadata
+- Token encoding/decoding
+- Special token management
+- Byte fallback tokenization
+
+## Current Implementation Status
+
+### Working Features:
+- Basic metadata extraction
+- Special token handling (BOS, EOS, UNK)
+- Basic token encoding/decoding
+- Byte fallback tokens (<0x00> through <0xFF>)
+
+### Needs Implementation:
+1. Proper Subword Tokenization
+   - Currently only does basic word splitting
+   - Needs BPE or WordPiece implementation
+   - Reference: LLaMA tokenizer uses SentencePiece
+
+2. Whitespace Handling
+   - Current implementation loses whitespace information
+   - Need to properly handle:
+     * Leading/trailing whitespace
+     * Multiple spaces
+     * Special whitespace characters (\n, \t, etc)
+
+3. Performance Optimization
+   - Current implementation makes multiple passes over text
+   - Need efficient token matching algorithm
+   - Consider caching frequent token sequences
+
+## Key Data Structures
+
+### TokenizerGGUF
+```rust
+pub struct TokenizerGGUF {
+    pub vocab: HashMap<String, u32>,        // Token string to ID mapping
+    pub id_to_token: HashMap<u32, String>,  // ID to token string mapping
+    pub bos_token: u32,                     // Beginning of sequence token ID
+    pub eos_token: u32,                     // End of sequence token ID
+    pub unknown_token: u32,                 // Unknown token ID
+}
+```
+
+## GGUF Metadata Fields
+Essential fields in model.header.metadata.kvs:
+- "tokenizer.ggml.model": String (e.g., "llama")
+- "tokenizer.ggml.tokens": Array[String]
+- "tokenizer.ggml.bos_token_id": U32
+- "tokenizer.ggml.eos_token_id": U32
+- "tokenizer.ggml.unknown_token_id": U32
+- "tokenizer.ggml.padding_token_id": U32
+
+## Usage Example
+```rust
+let model = GGUFModel::load("model.gguf")?;
+let tokenizer = model.load_tokenizer()?;
+let tokens = tokenizer.encode_text_to_gguf_tokens("Hello world")?;
+let text = tokenizer.decode_gguf_tokens_to_text(&tokens)?;
+```
+
+## Critical Next Steps
+
+1. Implement Proper Subword Tokenization:
+```rust
+// TODO: Implement proper subword tokenization
+fn tokenize_subword(&self, text: &str) -> Vec<String> {
+    // Need to implement:
+    // 1. Proper token matching algorithm
+    // 2. Longest-match-first strategy
+    // 3. Handle overlapping tokens
+}
+```
+
+2. Add Proper Whitespace Handling:
+```rust
+// TODO: Implement whitespace preservation
+fn preserve_whitespace(&self, text: &str) -> Vec<(String, bool)> {
+    // Need to:
+    // 1. Track whitespace locations
+    // 2. Preserve in token sequence
+    // 3. Restore during decoding
+}
+```
+
+3. Implement Token Sequence Building:
+```rust
+// TODO: Implement efficient token sequence building
+fn build_token_sequence(&self, tokens: Vec<String>) -> Vec<u32> {
+    // Need to:
+    // 1. Handle special tokens
+    // 2. Apply vocabulary efficiently
+    // 3. Use byte fallback when needed
+}
+```
+
+## Memory Considerations
+- Current vocabulary storage: O(V) where V is vocabulary size
+- Token sequence storage: O(N) where N is sequence length
+- Consider streaming for long sequences
+- May need memory-mapped vocabulary for very large models
+
+## Error Handling
+Current error cases:
+- Missing metadata fields
+- Invalid token IDs
+- Unknown tokens
+Need to add:
+- Better error messages
+- Recovery strategies
+- Validation checks
+
+## Testing Needed
+1. Unit Tests:
+   - Special token handling
+   - Byte fallback cases
+   - Whitespace preservation
+   - Edge cases (empty string, all special chars, etc)
+
+2. Integration Tests:
+   - Full encode-decode cycle
+   - Long text sequences
+   - Memory usage patterns
+   - Performance benchmarks
+
+## References
+1. GGUF Format Specification:
+   https://github.com/ggerganov/ggml/blob/master/docs/gguf.md
+2. LLaMA Tokenizer Details:
+   [Need to add reference to specific LLaMA tokenizer documentation]
+3. SentencePiece Implementation:
+   https://github.com/google/sentencepiece
+
+## Known Issues
+1. Token sequence length not properly handled
+2. Whitespace lost in encoding/decoding
+3. No proper subword tokenization
+4. Performance not optimized for large texts
+
+## Future Improvements
+1. Streaming token processing
+2. Cached token sequences
+3. Memory-mapped vocabulary
+4. Better error recovery
+5. Performance optimizations
+
+## Contact
+[Add team contact information here]
+*/
+```
 
 */
 
@@ -226,7 +248,7 @@ impl TokenizerGGUF {
         Ok(tokens)
     }
 
-    /// TODO updated Docstring needed!!
+    // TODO updated Docstring needed!!
     /// Converts GGUF token IDs back to text
     /// Converts GGUF token IDs back to text
     /// 
@@ -274,86 +296,9 @@ impl TokenizerGGUF {
         
         Ok(text)
     }
-    
-    // pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
-    //     let mut text = Vec::new();
-        
-    //     for &token_id in token_ids {
-    //         // Skip special tokens
-    //         if token_id == self.bos_token || token_id == self.eos_token {
-    //             continue;
-    //         }
-            
-    //         if let Some(token) = self.id_to_token.get(&token_id) {
-    //             // Handle byte tokens
-    //             if token.starts_with("<0x") && token.ends_with('>') {
-    //                 // Convert byte token back to actual byte
-    //                 if let Ok(byte) = u8::from_str_radix(&token[3..5], 16) {
-    //                     text.push(byte as char);
-    //                 }
-    //             } else {
-    //                 // Regular token
-    //                 text.push_str(token);
-    //             }
-    //         } else {
-    //             return Err(io::Error::new(
-    //                 io::ErrorKind::InvalidData,
-    //                 format!("Token ID not in vocabulary: {}", token_id)
-    //             ));
-    //         }
-    //     }
-        
-    //     Ok(text.into_iter().collect())
-    // }
-    
-    
-    // pub fn encode_text_to_gguf_tokens(&self, text: &str) -> io::Result<Vec<u32>> {
-    //     let mut tokens = Vec::new();
-        
-    //     // Add BOS token
-    //     tokens.push(self.bos_token);
-        
-    //     // TODO: Implement actual tokenization
-    //     // This is placeholder - needs proper subword tokenization
-    //     for word in text.split_whitespace() {
-    //         if let Some(&token_id) = self.vocab.get(word) {
-    //             tokens.push(token_id);
-    //         } else {
-    //             return Err(io::Error::new(
-    //                 io::ErrorKind::InvalidInput,
-    //                 format!("Token not in GGUF vocabulary: {}", word)
-    //             ));
-    //         }
-    //     }
-        
-    //     Ok(tokens)
-    // }
+} // end imp TOKENIZERGGUF
 
-
-    // pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
-    //     let mut text = Vec::new();
-        
-    //     for &token_id in token_ids {
-    //         // Skip special tokens
-    //         if token_id == self.bos_token || token_id == self.eos_token {
-    //             continue;
-    //         }
-            
-    //         if let Some(token) = self.id_to_token.get(&token_id) {
-    //             text.push(token.clone());
-    //         } else {
-    //             return Err(io::Error::new(
-    //                 io::ErrorKind::InvalidData,
-    //                 format!("Token ID not in GGUF vocabulary: {}", token_id)
-    //             ));
-    //         }
-    //     }
-        
-    //     Ok(text.join(" "))  // Simplified joining - needs proper detokenization
-    // }
-}
-
-/// TODO this needs an updated doc string!
+// TODO this needs an updated doc string!
 /// Loads tokenizer data specifically from GGUF format metadata
 /// 
 /// # Design Notes

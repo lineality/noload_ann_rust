@@ -1539,8 +1539,7 @@ Ultimately, it is likely that GGUF will remain necessary for the foreseeable fut
 
 */
 
-/*
-version
+
 /*
 # Development Status Notes for Next Team
 
@@ -1643,11 +1642,7 @@ impl TokenizerGGUF {
 ```
 
 ## Critical Next Steps
-
-1. Tokenization Implementation
-   - Current tokenization is placeholder only
-   - Need to implement proper subword tokenization
-   - Reference GGUF specification for exact tokenization rules
+...
 
 2. Memory Management
    - Consider impact of vocabulary size
@@ -1697,144 +1692,6 @@ The tokenizer is part of a larger no-load inference implementation:
 
 */
 
-// name of module: gguf_tokenizer_module
-
-use std::collections::HashMap;
-use std::io;
-use crate::{GGUFModel, MetadataValue};  // Note: using crate:: to reference main module
-
-/// General tokenizer interface, format-agnostic
-#[derive(Debug)]
-pub struct TokenizerGGUF {
-    pub vocab: HashMap<String, u32>,
-    pub id_to_token: HashMap<u32, String>,
-    pub bos_token: u32,
-    pub eos_token: u32,
-}
-
-/// TokenizerGGUF struct for gguf_tokenizer_module/mod.rs
-impl TokenizerGGUF {
-    /// Converts input text to GGUF token IDs
-    /// 
-    /// # Design Notes
-    /// - Adds BOS token at start
-    /// - Splits text into subwords using GGUF vocabulary
-    /// - Returns vector of token IDs
-    /// 
-    /// # Arguments
-    /// * `text` - Input text to tokenize
-    /// 
-    /// # Returns
-    /// * `io::Result<Vec<u32>>` - Vector of token IDs including BOS token
-    /// 
-    /// # Errors
-    /// * `io::Error` if text contains tokens not in vocabulary
-    pub fn encode_text_to_gguf_tokens(&self, text: &str) -> io::Result<Vec<u32>> {
-        let mut tokens = Vec::new();
-        
-        // Add BOS token
-        tokens.push(self.bos_token);
-        
-        // TODO: Implement actual tokenization
-        // This is placeholder - needs proper subword tokenization
-        for word in text.split_whitespace() {
-            if let Some(&token_id) = self.vocab.get(word) {
-                tokens.push(token_id);
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Token not in GGUF vocabulary: {}", word)
-                ));
-            }
-        }
-        
-        Ok(tokens)
-    }
-
-    /// Converts GGUF token IDs back to text
-    /// 
-    /// # Design Notes
-    /// - Skips special tokens (BOS/EOS)
-    /// - Looks up each token ID in vocabulary
-    /// - Joins tokens with spaces (simplified)
-    /// 
-    /// # Arguments
-    /// * `token_ids` - Vector of GGUF token IDs
-    /// 
-    /// # Returns
-    /// * `io::Result<String>` - Decoded text
-    /// 
-    /// # Errors
-    /// * `io::Error` if any token ID not found in vocabulary
-    pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
-        let mut text = Vec::new();
-        
-        for &token_id in token_ids {
-            // Skip special tokens
-            if token_id == self.bos_token || token_id == self.eos_token {
-                continue;
-            }
-            
-            if let Some(token) = self.id_to_token.get(&token_id) {
-                text.push(token.clone());
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Token ID not in GGUF vocabulary: {}", token_id)
-                ));
-            }
-        }
-        
-        Ok(text.join(" "))  // Simplified joining - needs proper detokenization
-    }
-}
-
-/// Loads tokenizer data specifically from GGUF format metadata
-/// 
-/// # Design Notes
-/// GGUF stores tokenizer data differently from other formats:
-/// - Vocabulary is stored in metadata under "tokenizer.ggml.tokens"
-/// - Special tokens are stored as IDs: "tokenizer.ggml.bos_token_id", etc
-/// - No external files needed (unlike HuggingFace which uses tokenizer.json)
-pub fn load_from_gguf(model: &GGUFModel) -> io::Result<TokenizerGGUF> {
-    // Extract vocabulary from GGUF metadata
-    let vocab_tokens = match &model.header.metadata.kvs.get("tokenizer.ggml.tokens") {
-        Some(MetadataValue::Array(tokens)) => tokens,
-        _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF tokenizer vocab not found")),
-    };
-    
-    // Build mappings
-    let mut vocab = HashMap::new();
-    let mut id_to_token = HashMap::new();
-    
-    for (i, token) in vocab_tokens.iter().enumerate() {
-        if let MetadataValue::String(s) = token {
-            vocab.insert(s.data.clone(), i as u32);
-            id_to_token.insert(i as u32, s.data.clone());
-        }
-    }
-    
-    // Get GGUF special token IDs
-    let bos_token = match &model.header.metadata.kvs.get("tokenizer.ggml.bos_token_id") {
-        Some(MetadataValue::U32(id)) => *id,
-        _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF BOS token ID not found")),
-    };
-    
-    let eos_token = match &model.header.metadata.kvs.get("tokenizer.ggml.eos_token_id") {
-        Some(MetadataValue::U32(id)) => *id,
-        _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF EOS token ID not found")),
-    };
-    
-    Ok(TokenizerGGUF {
-        vocab,
-        id_to_token,
-        bos_token,
-        eos_token,
-    })
-}
-
-
-*/
 
 use std::fs::File;
 use std::io::{
@@ -3154,7 +3011,7 @@ fn calculate_memory_requirements(arch: &ModelArchitecture) -> MemoryRequirements
 /// 
 /// # Run inference
 /// cargo run -- --model /home/oopsy/jan/models/llamacorn-1.1b/llamacorn-1.1b-chat.Q8_0.gguf --inference --token 1
-/// cargo run -- --model /home/oopsy/jan/models/llamacorn-1.1b/llamacorn-1.1b-chat.Q8_0.gguf--inference --text "Hello world"
+/// cargo run -- --model /home/oopsy/jan/models/llamacorn-1.1b/llamacorn-1.1b-chat.Q8_0.gguf --inference --text "Hello world"
 ///
 /// ```
 fn main() -> io::Result<()> {
