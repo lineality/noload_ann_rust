@@ -4,6 +4,8 @@ debug/
 target/
 models/
 archiv/
+archive/
+
 env/
 config/
 
