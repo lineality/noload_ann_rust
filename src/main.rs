@@ -3154,6 +3154,7 @@ fn calculate_memory_requirements(arch: &ModelArchitecture) -> MemoryRequirements
 /// 
 /// # Run inference
 /// cargo run -- --model /home/oopsy/jan/models/llamacorn-1.1b/llamacorn-1.1b-chat.Q8_0.gguf --inference --token 1
+/// cargo run -- --model /home/oopsy/jan/models/llamacorn-1.1b/llamacorn-1.1b-chat.Q8_0.gguf--inference --text "Hello world"
 ///
 /// ```
 fn main() -> io::Result<()> {
