@@ -174,10 +174,13 @@ pub struct TokenizerGGUF {
     pub id_to_token: HashMap<u32, String>,
     pub bos_token: u32,
     pub eos_token: u32,
+    pub unknown_token: u32, 
 }
 
 /// TokenizerGGUF struct for gguf_tokenizer_module/mod.rs
 impl TokenizerGGUF {
+    
+    
     /// Converts input text to GGUF token IDs
     /// 
     /// # Design Notes
@@ -193,28 +196,38 @@ impl TokenizerGGUF {
     /// 
     /// # Errors
     /// * `io::Error` if text contains tokens not in vocabulary
+    /// Converts input text to GGUF token IDs
     pub fn encode_text_to_gguf_tokens(&self, text: &str) -> io::Result<Vec<u32>> {
         let mut tokens = Vec::new();
         
         // Add BOS token
         tokens.push(self.bos_token);
         
-        // TODO: Implement actual tokenization
-        // This is placeholder - needs proper subword tokenization
+        // Basic word splitting (this needs to be improved with proper subword tokenization)
         for word in text.split_whitespace() {
             if let Some(&token_id) = self.vocab.get(word) {
                 tokens.push(token_id);
             } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Token not in GGUF vocabulary: {}", word)
-                ));
+                // If word not found, try byte fallback
+                for byte in word.bytes() {
+                    let byte_token = format!("<0x{:02X}>", byte);
+                    if let Some(&token_id) = self.vocab.get(&byte_token) {
+                        tokens.push(token_id);
+                    } else {
+                        tokens.push(self.unknown_token);
+                    }
+                }
             }
         }
+        
+        // Add EOS token
+        tokens.push(self.eos_token);
         
         Ok(tokens)
     }
 
+    /// TODO updated Docstring needed!!
+    /// Converts GGUF token IDs back to text
     /// Converts GGUF token IDs back to text
     /// 
     /// # Design Notes
@@ -230,8 +243,9 @@ impl TokenizerGGUF {
     /// 
     /// # Errors
     /// * `io::Error` if any token ID not found in vocabulary
+    /// Converts GGUF token IDs back to text
     pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
-        let mut text = Vec::new();
+        let mut text = String::new();  // Changed from Vec<char> to String
         
         for &token_id in token_ids {
             // Skip special tokens
@@ -240,19 +254,106 @@ impl TokenizerGGUF {
             }
             
             if let Some(token) = self.id_to_token.get(&token_id) {
-                text.push(token.clone());
+                // Handle byte tokens
+                if token.starts_with("<0x") && token.ends_with('>') {
+                    // Convert byte token back to actual byte
+                    if let Ok(byte) = u8::from_str_radix(&token[3..5], 16) {
+                        text.push(byte as char);
+                    }
+                } else {
+                    // Regular token
+                    text.push_str(token);  // Now this will work with String
+                }
             } else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Token ID not in GGUF vocabulary: {}", token_id)
+                    format!("Token ID not in vocabulary: {}", token_id)
                 ));
             }
         }
         
-        Ok(text.join(" "))  // Simplified joining - needs proper detokenization
+        Ok(text)
     }
+    
+    // pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
+    //     let mut text = Vec::new();
+        
+    //     for &token_id in token_ids {
+    //         // Skip special tokens
+    //         if token_id == self.bos_token || token_id == self.eos_token {
+    //             continue;
+    //         }
+            
+    //         if let Some(token) = self.id_to_token.get(&token_id) {
+    //             // Handle byte tokens
+    //             if token.starts_with("<0x") && token.ends_with('>') {
+    //                 // Convert byte token back to actual byte
+    //                 if let Ok(byte) = u8::from_str_radix(&token[3..5], 16) {
+    //                     text.push(byte as char);
+    //                 }
+    //             } else {
+    //                 // Regular token
+    //                 text.push_str(token);
+    //             }
+    //         } else {
+    //             return Err(io::Error::new(
+    //                 io::ErrorKind::InvalidData,
+    //                 format!("Token ID not in vocabulary: {}", token_id)
+    //             ));
+    //         }
+    //     }
+        
+    //     Ok(text.into_iter().collect())
+    // }
+    
+    
+    // pub fn encode_text_to_gguf_tokens(&self, text: &str) -> io::Result<Vec<u32>> {
+    //     let mut tokens = Vec::new();
+        
+    //     // Add BOS token
+    //     tokens.push(self.bos_token);
+        
+    //     // TODO: Implement actual tokenization
+    //     // This is placeholder - needs proper subword tokenization
+    //     for word in text.split_whitespace() {
+    //         if let Some(&token_id) = self.vocab.get(word) {
+    //             tokens.push(token_id);
+    //         } else {
+    //             return Err(io::Error::new(
+    //                 io::ErrorKind::InvalidInput,
+    //                 format!("Token not in GGUF vocabulary: {}", word)
+    //             ));
+    //         }
+    //     }
+        
+    //     Ok(tokens)
+    // }
+
+
+    // pub fn decode_gguf_tokens_to_text(&self, token_ids: &[u32]) -> io::Result<String> {
+    //     let mut text = Vec::new();
+        
+    //     for &token_id in token_ids {
+    //         // Skip special tokens
+    //         if token_id == self.bos_token || token_id == self.eos_token {
+    //             continue;
+    //         }
+            
+    //         if let Some(token) = self.id_to_token.get(&token_id) {
+    //             text.push(token.clone());
+    //         } else {
+    //             return Err(io::Error::new(
+    //                 io::ErrorKind::InvalidData,
+    //                 format!("Token ID not in GGUF vocabulary: {}", token_id)
+    //             ));
+    //         }
+    //     }
+        
+    //     Ok(text.join(" "))  // Simplified joining - needs proper detokenization
+    // }
 }
 
+/// TODO this needs an updated doc string!
 /// Loads tokenizer data specifically from GGUF format metadata
 /// 
 /// # Design Notes
@@ -288,12 +389,55 @@ pub fn load_from_gguf(model: &GGUFModel) -> io::Result<TokenizerGGUF> {
         Some(MetadataValue::U32(id)) => *id,
         _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF EOS token ID not found")),
     };
+
+    let unknown_token = match &model.header.metadata.kvs.get("tokenizer.ggml.unknown_token_id") {
+        Some(MetadataValue::U32(id)) => *id,
+        _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF unknown token ID not found")),
+    };
     
     Ok(TokenizerGGUF {
         vocab,
         id_to_token,
         bos_token,
         eos_token,
+        unknown_token,
     })
 }
+
+// pub fn load_from_gguf(model: &GGUFModel) -> io::Result<TokenizerGGUF> {
+//     // Extract vocabulary from GGUF metadata
+//     let vocab_tokens = match &model.header.metadata.kvs.get("tokenizer.ggml.tokens") {
+//         Some(MetadataValue::Array(tokens)) => tokens,
+//         _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF tokenizer vocab not found")),
+//     };
+    
+//     // Build mappings
+//     let mut vocab = HashMap::new();
+//     let mut id_to_token = HashMap::new();
+    
+//     for (i, token) in vocab_tokens.iter().enumerate() {
+//         if let MetadataValue::String(s) = token {
+//             vocab.insert(s.data.clone(), i as u32);
+//             id_to_token.insert(i as u32, s.data.clone());
+//         }
+//     }
+    
+//     // Get GGUF special token IDs
+//     let bos_token = match &model.header.metadata.kvs.get("tokenizer.ggml.bos_token_id") {
+//         Some(MetadataValue::U32(id)) => *id,
+//         _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF BOS token ID not found")),
+//     };
+    
+//     let eos_token = match &model.header.metadata.kvs.get("tokenizer.ggml.eos_token_id") {
+//         Some(MetadataValue::U32(id)) => *id,
+//         _ => return Err(io::Error::new(io::ErrorKind::NotFound, "GGUF EOS token ID not found")),
+//     };
+    
+//     Ok(TokenizerGGUF {
+//         vocab,
+//         id_to_token,
+//         bos_token,
+//         eos_token,
+//     })
+// }
 

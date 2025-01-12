@@ -1,6 +1,7 @@
-/*
-useful?
-https://docs.rs/gguf-rs/latest/gguf_rs/
+// https://github.com/lineality/noload_ann_rust
+/* Jan 04 2025 experiment
+links in case  useful: 
+- https://docs.rs/gguf-rs/latest/gguf_rs/
 
 ...
 Memo:
@@ -1888,6 +1889,51 @@ impl GGUFModel {
         gguf_tokenizer_module::load_from_gguf(self)
     }
     
+    /// High-level inference function that takes a string and returns a string
+    /// 
+    /// # Arguments
+    /// * `input_text` - The text to process
+    /// 
+    /// # Returns
+    /// * `Result<String>` - The model's output text
+    pub fn infer_string(&self, input_text: &str) -> io::Result<String> {
+        // 1. Load tokenizer
+        let tokenizer = self.load_tokenizer()?;
+        
+        // 2. Encode input text to tokens
+        println!("Encoding input text: {}", input_text);
+        let tokens = tokenizer.encode_text_to_gguf_tokens(input_text)?;
+        println!("Encoded to tokens: {:?}", tokens);
+        
+        // 3. Run inference on tokens
+        let mut output_logits = Vec::new();
+        for &token_id in &tokens {
+            let logits = self.run_model_inference(token_id as usize)?;
+            output_logits.push(logits);
+        }
+        
+        // 4. Get most likely token for each logit vector
+        let mut output_tokens = Vec::new();
+        for logits in &output_logits {
+            // Find index of maximum logit
+            let mut max_idx = 0;
+            let mut max_val = logits[0];
+            for (i, &val) in logits.iter().enumerate() {
+                if val > max_val {
+                    max_idx = i;
+                    max_val = val;
+                }
+            }
+            output_tokens.push(max_idx as u32);
+        }
+        
+        // 5. Decode tokens back to text
+        let output_text = tokenizer.decode_gguf_tokens_to_text(&output_tokens)?;
+        
+        Ok(output_text)
+    }
+    
+    
     /// Inspects model metadata to determine architecture parameters
     /// 
     /// # Returns
@@ -3121,6 +3167,9 @@ fn main() -> io::Result<()> {
     let mut should_infer = false;
     let mut token_id = 1;
     
+    // TODO clarify, maybe this is to preset/reset a default value
+    let mut input_text = String::from("Hello");  // default
+    
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -3150,6 +3199,15 @@ fn main() -> io::Result<()> {
                     return Ok(());
                 }
             },
+            "--text" => {
+                if i + 1 < args.len() {
+                    input_text = args[i + 1].clone();
+                    i += 2;
+                } else {
+                    println!("Error: --text requires a string argument");
+                    return Ok(());
+                }
+            },
             _ => {
                 println!("Unknown argument: {}", args[i]);
                 i += 1;
@@ -3168,32 +3226,6 @@ fn main() -> io::Result<()> {
     // Load the model
     println!("Loading model from: {}", model_path);
     let model = GGUFModel::load(&model_path)?;
-
-    // if should_inspect {
-    //     // Run architecture inspection
-    //     println!("\nInspecting model architecture...");
-    //     let arch = model.inspect_architecture()?;
-        
-    //     // Print memory requirements
-    //     let theoretical_memory = calculate_memory_requirements(&arch);
-    //     println!("\nTheoretical Memory Requirements:");
-    //     println!("- Minimum working set: {} MB", theoretical_memory.minimum_mb);
-    //     println!("- Full model size: {} MB", theoretical_memory.full_model_mb);
-    //     println!("- Per-layer memory: {} MB", theoretical_memory.per_layer_mb);
-        
-    //     // Print tensor information
-    //     println!("\nTensor Information:");
-    //     for (i, tensor) in model.tensors.iter().enumerate() {
-    //         if i < 5 || i > model.tensors.len() - 5 {
-    //             println!("- {}: {:?} ({} bytes)", 
-    //                 tensor.name, tensor.dimensions, tensor.byte_size());
-    //         } else if i == 5 {
-    //             println!("  ...");
-    //         }
-    //     }
-        
-        
-    // }
 
     if should_inspect {
         println!("\nGGUF Model Information:");
@@ -3231,25 +3263,36 @@ fn main() -> io::Result<()> {
         }
     }
     
+    // if should_infer {
+    //     // Run inference
+    //     println!("\nRunning inference with token {}...", token_id);
+    //     match model.run_model_inference(token_id) {
+    //         Ok(logits) => {
+    //             println!("\nSuccessfully computed logits");
+    //             println!("Top 5 next token probabilities:");
+                
+    //             let mut indices: Vec<usize> = (0..logits.len()).collect();
+    //             indices.sort_by(|&i, &j| logits[j].partial_cmp(&logits[i])
+    //                 .unwrap_or(std::cmp::Ordering::Equal));
+                
+    //             for &idx in indices.iter().take(5) {
+    //                 println!("Token {}: {:.3}", idx, logits[idx]);
+    //             }
+    //         },
+    //         Err(e) => println!("Error in inference: {}", e),
+    //     }
+    // }
     if should_infer {
-        // Run inference
-        println!("\nRunning inference with token {}...", token_id);
-        match model.run_model_inference(token_id) {
-            Ok(logits) => {
-                println!("\nSuccessfully computed logits");
-                println!("Top 5 next token probabilities:");
-                
-                let mut indices: Vec<usize> = (0..logits.len()).collect();
-                indices.sort_by(|&i, &j| logits[j].partial_cmp(&logits[i])
-                    .unwrap_or(std::cmp::Ordering::Equal));
-                
-                for &idx in indices.iter().take(5) {
-                    println!("Token {}: {:.3}", idx, logits[idx]);
-                }
+        println!("\nRunning string inference...");
+        match model.infer_string(&input_text) {
+            Ok(output) => {
+                println!("Input text: {}", input_text);
+                println!("Output text: {}", output);
             },
-            Err(e) => println!("Error in inference: {}", e),
+            Err(e) => println!("Error in string inference: {}", e),
         }
     }
-
+    
+    
     Ok(())
 }
